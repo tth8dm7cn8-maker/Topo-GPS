@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="az">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>Topo GPS</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#1b1f24;background:#f4f5f7}
+  body{display:flex;flex-direction:column;height:100dvh}
+  #top{background:#fff;padding:8px;box-shadow:0 1px 4px #0003;z-index:1100}
+  .srow{display:flex;gap:6px}
+  #q{flex:1;min-width:0;font-size:16px;padding:9px 10px;border:1px solid #b9c0c9;border-radius:8px}
+  button{font:inherit;cursor:pointer}
+  .btn{border:0;border-radius:8px;padding:0 12px;background:#1565c0;color:#fff;font-weight:600;min-height:40px}
+  .btn.alt{background:#455a64}
+  .btn.warn{background:#c62828}
+  .seg{display:flex;margin-top:6px;border:1px solid #1565c0;border-radius:8px;overflow:hidden}
+  .seg button{flex:1;border:0;background:#fff;color:#1565c0;padding:8px 4px;font-weight:600}
+  .seg button.on{background:#1565c0;color:#fff}
+  #msg{font-size:13px;min-height:16px;margin-top:4px;color:#c62828}
+  #msg.ok{color:#2e7d32}
+  #mapwrap{position:relative;flex:1;min-height:0}
+  #map{position:absolute;inset:0}
+  .fabs{position:absolute;right:10px;top:10px;z-index:1000;display:flex;flex-direction:column;gap:8px}
+  .fab{width:44px;height:44px;border-radius:50%;border:0;background:#fff;box-shadow:0 1px 5px #0006;font-size:20px}
+  #sheet{background:#fff;box-shadow:0 -2px 6px #0003;max-height:46dvh;display:flex;flex-direction:column;z-index:1100}
+  #handle{padding:8px 12px;font-weight:700;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #e3e6ea}
+  #sbody{overflow:auto;padding:8px 12px 12px}
+  #sheet.collapsed #sbody{display:none}
+  .me{background:#e8f0fe;border-radius:8px;padding:8px;font-size:14px;margin-bottom:8px}
+  .opts{display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;font-size:14px;margin-bottom:8px}
+  .opts label{display:flex;align-items:center;gap:6px}
+  .opts select{font-size:14px;padding:4px;border-radius:6px;border:1px solid #b9c0c9;flex:1;min-width:0}
+  .item{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid #e3e6ea}
+  .num{flex:none;width:28px;height:28px;border-radius:50%;background:#d32f2f;color:#fff;font-weight:700;text-align:center;line-height:28px}
+  .info{flex:1;min-width:0;font-size:14px}
+  .info small{display:block;color:#455a64;margin-top:2px;word-break:break-word}
+  .x{flex:none;border:0;background:#eceff1;border-radius:8px;width:34px;height:34px;font-size:16px}
+  .acts{display:flex;gap:8px;margin-top:10px}
+  .acts .btn{flex:1}
+  .tmk{width:28px;height:28px;border-radius:50%;background:#d32f2f;color:#fff;font:700 15px/24px system-ui;text-align:center;border:2px solid #fff;box-shadow:0 1px 4px #0008}
+  .mem{width:18px;height:18px;border-radius:50%;background:#1976d2;border:3px solid #fff;box-shadow:0 0 0 2px #1976d255,0 1px 4px #0008}
+  .lbl{background:#fffffff0;border:1px solid #90a4ae;border-radius:5px;padding:1px 5px;font-size:12px;font-weight:600;box-shadow:none;pointer-events:none}
+  .lbl:before{display:none}
+  .pop button{margin-top:6px}
+</style>
+</head>
+<body>
+
+<div id="top">
+  <div class="srow">
+    <input id="q" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false"
+           placeholder="40.409300, 49.867100  yaxud  39T VK 12345 67890">
+    <button class="btn" id="addBtn">+ Hədəf</button>
+    <button class="btn alt" id="meBtn" title="Yazılan koordinatı öz mövqeyim kimi təyin et">Mən</button>
+  </div>
+  <div class="seg" id="seg">
+    <button data-l="simple" class="on">Sadə</button>
+    <button data-l="hybrid">Hibrid</button>
+    <button data-l="topo">Horizontallı</button>
+  </div>
+  <div id="msg"></div>
+</div>
+
+<div id="mapwrap">
+  <div id="map"></div>
+  <div class="fabs">
+    <button class="fab" id="locBtn" title="Mənim yerim">⌖</button>
+    <button class="fab" id="fitBtn" title="Hamısını göstər">⤢</button>
+  </div>
+</div>
+
+<div id="sheet">
+  <div id="handle"><span id="hTitle">Hədəflər: 0</span><span id="hArrow">▾</span></div>
+  <div id="sbody">
+    <div class="me" id="meBox">GPS gözlənilir…</div>
+    <div class="opts">
+      <label><input type="checkbox" id="oMe" checked> Məndən hədəflərə xətt</label>
+      <label><input type="checkbox" id="oChain" checked> Hədəflər arası xətt</label>
+      <label><input type="checkbox" id="oLbl" checked> Xətt üzərində yazı</label>
+      <label>Bucaq:
+        <select id="oUnit"><option value="deg">Dərəcə</option><option value="mil">Mil (6000)</option></select>
+      </label>
+      <label style="grid-column:1/3">Koordinat:
+        <select id="oFmt">
+          <option value="geo">Coğrafi (onluq)</option>
+          <option value="dms">Coğrafi (° ′ ″)</option>
+          <option value="mgrs">MGRS</option>
+        </select>
+      </label>
+    </div>
+    <div id="list"></div>
+    <div class="acts">
+      <button class="btn warn" id="clearBtn">Hamısını sil</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+"use strict";
+/* ============ Riyazi sabitlər və koordinat çevirmələri (WGS84) ============ */
+const D2R = Math.PI/180, R2D = 180/Math.PI;
+const WGS = {a:6378137, f:1/298.257223563};
+WGS.e2 = WGS.f*(2-WGS.f); WGS.ep2 = WGS.e2/(1-WGS.e2);
+const K0 = 0.9996;
+const BANDS = "CDEFGHJKLMNPQRSTUVWX";
+const COLS  = ["ABCDEFGH","JKLMNPQR","STUVWXYZ"];
+const ROWS  = "ABCDEFGHJKLMNPQRSTUV";
+
+function toUTM(lat, lon, zf){
+  lon = ((lon+180)%360+360)%360-180;
+  let zone = zf || Math.min(60, Math.floor((lon+180)/6)+1);
+  if(!zf){
+    if(lat>=56 && lat<64 && lon>=3 && lon<12) zone=32;
+    if(lat>=72 && lat<84){
+      if(lon>=0&&lon<9) zone=31; else if(lon>=9&&lon<21) zone=33;
+      else if(lon>=21&&lon<33) zone=35; else if(lon>=33&&lon<42) zone=37;
+    }
+  }
+  const lon0=((zone-1)*6-180+3)*D2R, p=lat*D2R, l=lon*D2R;
+  const {a,e2,ep2}=WGS;
+  const s=Math.sin(p), c=Math.cos(p), t=Math.tan(p);
+  const N=a/Math.sqrt(1-e2*s*s), T=t*t, C=ep2*c*c, A=c*(l-lon0);
+  const e4=e2*e2, e6=e4*e2;
+  const M=a*((1-e2/4-3*e4/64-5*e6/256)*p-(3*e2/8+3*e4/32+45*e6/1024)*Math.sin(2*p)
+            +(15*e4/256+45*e6/1024)*Math.sin(4*p)-(35*e6/3072)*Math.sin(6*p));
+  const x=K0*N*(A+(1-T+C)*A**3/6+(5-18*T+T*T+72*C-58*ep2)*A**5/120)+500000;
+  let y=K0*(M+N*t*(A*A/2+(5-T+9*C+4*C*C)*A**4/24+(61-58*T+T*T+600*C-330*ep2)*A**6/720));
+  if(lat<0) y+=10000000;
+  return {zone,e:x,n:y};
+}
+
+function fromUTM(zone,x,y,south){
+  const {a,e2,ep2}=WGS;
+  const xp=x-500000, yp=south? y-10000000 : y;
+  const e4=e2*e2, e6=e4*e2;
+  const M=yp/K0;
+  const mu=M/(a*(1-e2/4-3*e4/64-5*e6/256));
+  const e1=(1-Math.sqrt(1-e2))/(1+Math.sqrt(1-e2));
+  const p1=mu+(3*e1/2-27*e1**3/32)*Math.sin(2*mu)+(21*e1**2/16-55*e1**4/32)*Math.sin(4*mu)
+           +(151*e1**3/96)*Math.sin(6*mu)+(1097*e1**4/512)*Math.sin(8*mu);
+  const s=Math.sin(p1), c=Math.cos(p1), t=Math.tan(p1);
+  const N1=a/Math.sqrt(1-e2*s*s), T1=t*t, C1=ep2*c*c;
+  const R1=a*(1-e2)/Math.pow(1-e2*s*s,1.5), D=xp/(N1*K0);
+  const lat=p1-(N1*t/R1)*(D*D/2-(5+3*T1+10*C1-4*C1*C1-9*ep2)*D**4/24
+            +(61+90*T1+298*C1+45*T1*T1-252*ep2-3*C1*C1)*D**6/720);
+  const lon0=((zone-1)*6-180+3)*D2R;
+  const lon=lon0+(D-(1+2*T1+C1)*D**3/6+(5-2*C1+28*T1-3*C1*C1+8*ep2+24*T1*T1)*D**5/120)/c;
+  return {lat:lat*R2D, lon:lon*R2D};
+}
+
+function toMGRS(lat,lon){
+  if(lat<-80||lat>84) return "(MGRS bu enlikdə təyin olunmur)";
+  const u=toUTM(lat,lon);
+  const band=BANDS[Math.min(19,Math.floor((lat+80)/8))];
+  const col=COLS[(u.zone-1)%3][Math.floor(u.e/100000)-1];
+  const row=ROWS[(Math.floor(u.n/100000)+(u.zone%2===0?5:0))%20];
+  const pad=v=>String(Math.floor(v%100000)).padStart(5,"0");
+  return `${u.zone}${band} ${col}${row} ${pad(u.e)} ${pad(u.n)}`;
+}
+
+function fromMGRS(str){
+  const s=str.replace(/\s+/g,"").toUpperCase();
+  const m=s.match(/^(\d{1,2})([C-HJ-NP-X])([A-HJ-NP-Z])([A-HJ-NP-V])(\d*)$/);
+  if(!m) return null;
+  const zone=+m[1]; if(zone<1||zone>60) return null;
+  const dg=m[5]; if(dg.length%2||dg.length>10) return null;
+  const h=dg.length/2;
+  const e=h? +dg.slice(0,h)*Math.pow(10,5-h) : 0;
+  const n=h? +dg.slice(h)*Math.pow(10,5-h) : 0;
+  const ci=COLS[(zone-1)%3].indexOf(m[3]); if(ci<0) return null;
+  const ri=(ROWS.indexOf(m[4])-(zone%2===0?5:0)+20)%20;
+  const bi=BANDS.indexOf(m[2]);
+  const minLat=-80+8*bi, lonC=(zone-1)*6-180+3;
+  const minN=toUTM(minLat,lonC,zone).n;
+  let north=ri*100000;
+  while(north+100000<=minN) north+=2000000;
+  north+=n;
+  return fromUTM(zone,(ci+1)*100000+e,north,bi<10);
+}
+
+/* ============ Girişin təhlili (MGRS / coğrafi) ============ */
+function dmsVal(part){
+  const nums=part.match(/\d+(?:[.,]\d+)?/g);
+  if(!nums) return null;
+  const v=nums.map(x=>parseFloat(x.replace(",",".")));
+  let r=(v[0]||0)+(v[1]||0)/60+(v[2]||0)/3600;
+  if(/-/.test(part)) r=-r;
+  return r;
+}
+
+function parseCoord(txt){
+  txt=txt.trim(); if(!txt) return null;
+  const mg=fromMGRS(txt);
+  if(mg) return {lat:mg.lat,lon:mg.lon,type:"MGRS"};
+
+  let lat=null, lon=null;
+  const letters=[...txt.matchAll(/[NSEW]/gi)];
+  if(letters.length===2){
+    const firstDigit=txt.search(/\d/);
+    let parts;
+    if(letters[0].index<firstDigit) parts=[txt.slice(0,letters[1].index), txt.slice(letters[1].index)];
+    else parts=[txt.slice(0,letters[0].index+1), txt.slice(letters[0].index+1)];
+    for(const p of parts){
+      const L=p.match(/[NSEW]/i)[0].toUpperCase();
+      let v=dmsVal(p); if(v===null) return null;
+      v=Math.abs(v); if(L==="S"||L==="W") v=-v;
+      if(L==="N"||L==="S"){ if(lat!==null) return null; lat=v; }
+      else { if(lon!==null) return null; lon=v; }
+    }
+    if(lat===null||lon===null) return null;
+  } else if(/[°º'′"″]/.test(txt)){
+    const re=/(-?\d+(?:\.\d+)?)\s*[°º]\s*(?:(\d+(?:\.\d+)?)\s*['′]\s*)?(?:(\d+(?:\.\d+)?)\s*(?:"|″|'')\s*)?/g;
+    const ms=[...txt.matchAll(re)];
+    if(ms.length!==2) return null;
+    const val=m=>{const d=parseFloat(m[1]);const sg=m[1].startsWith("-")?-1:1;
+      return sg*(Math.abs(d)+(+m[2]||0)/60+(+m[3]||0)/3600);};
+    lat=val(ms[0]); lon=val(ms[1]);
+  } else {
+    let t=txt;
+    if(/^\s*-?\d+,\d+[\s;]+-?\d+,\d+\s*$/.test(t)) t=t.replace(/,/g,"."); // 40,4093 49,8671
+    else t=t.replace(/,/g," ");
+    const nums=t.match(/-?\d+(?:\.\d+)?/g);
+    if(!nums||nums.length!==2) return null;
+    lat=parseFloat(nums[0]); lon=parseFloat(nums[1]);
+    if(Math.abs(lat)>90 && Math.abs(lon)<=90) [lat,lon]=[lon,lat];
+  }
+  if(!(Math.abs(lat)<=90 && Math.abs(lon)<=180)) return null;
+  return {lat,lon,type:"Coğrafi"};
+}
+
+/* ============ Məsafə və azimut (Vincenty, WGS84 elipsoidi) ============ */
+function inverse(lat1,lon1,lat2,lon2){
+  const a=WGS.a, f=WGS.f, b=a*(1-f);
+  const L=(lon2-lon1)*D2R;
+  const U1=Math.atan((1-f)*Math.tan(lat1*D2R)), U2=Math.atan((1-f)*Math.tan(lat2*D2R));
+  const sU1=Math.sin(U1),cU1=Math.cos(U1),sU2=Math.sin(U2),cU2=Math.cos(U2);
+  let lam=L, lp, it=0, sS,cS,sig,sA,c2A,c2Sm;
+  do{
+    const sl=Math.sin(lam), cl=Math.cos(lam);
+    sS=Math.hypot(cU2*sl, cU1*sU2-sU1*cU2*cl);
+    if(sS===0) return {d:0,az:0};
+    cS=sU1*sU2+cU1*cU2*cl;
+    sig=Math.atan2(sS,cS);
+    sA=cU1*cU2*sl/sS;
+    c2A=1-sA*sA;
+    c2Sm=c2A!==0? cS-2*sU1*sU2/c2A : 0;
+    const C=f/16*c2A*(4+f*(4-3*c2A));
+    lp=lam;
+    lam=L+(1-C)*f*sA*(sig+C*sS*(c2Sm+C*cS*(-1+2*c2Sm*c2Sm)));
+  }while(Math.abs(lam-lp)>1e-12 && ++it<100);
+  if(it>=100) return haversine(lat1,lon1,lat2,lon2);
+  const u2=c2A*(a*a-b*b)/(b*b);
+  const A=1+u2/16384*(4096+u2*(-768+u2*(320-175*u2)));
+  const B=u2/1024*(256+u2*(-128+u2*(74-47*u2)));
+  const dS=B*sS*(c2Sm+B/4*(cS*(-1+2*c2Sm*c2Sm)-B/6*c2Sm*(-3+4*sS*sS)*(-3+4*c2Sm*c2Sm)));
+  const d=b*A*(sig-dS);
+  const sl=Math.sin(lam), cl=Math.cos(lam);
+  const az=Math.atan2(cU2*sl, cU1*sU2-sU1*cU2*cl)*R2D;
+  return {d, az:(az+360)%360};
+}
+function haversine(lat1,lon1,lat2,lon2){
+  const R=6371008.8, p1=lat1*D2R,p2=lat2*D2R,dp=p2-p1,dl=(lon2-lon1)*D2R;
+  const h=Math.sin(dp/2)**2+Math.cos(p1)*Math.cos(p2)*Math.sin(dl/2)**2;
+  const d=2*R*Math.asin(Math.sqrt(h));
+  const y=Math.sin(dl)*Math.cos(p2), x=Math.cos(p1)*Math.sin(p2)-Math.sin(p1)*Math.cos(p2)*Math.cos(dl);
+  return {d, az:(Math.atan2(y,x)*R2D+360)%360};
+}
+
+/* ============ Formatlama ============ */
+const st={targets:[], me:null, manualMe:false, layer:"simple",
+          oMe:true,oChain:true,oLbl:true,unit:"deg",fmt:"geo"};
+try{ Object.assign(st, JSON.parse(localStorage.getItem("topogps_v1")||"{}"), {me:null,manualMe:false}); }catch(e){}
+function save(){ try{ localStorage.setItem("topogps_v1", JSON.stringify({
+  targets:st.targets,layer:st.layer,oMe:st.oMe,oChain:st.oChain,oLbl:st.oLbl,unit:st.unit,fmt:st.fmt})); }catch(e){} }
+
+function fmtDist(m){ return m<1000? m.toFixed(1)+" m" : (m/1000).toFixed(3)+" km"; }
+function fmtAz(deg){
+  if(st.unit==="mil"){
+    const mil=Math.round(deg*6000/360)%6000;
+    return String(Math.floor(mil/100)).padStart(2,"0")+"-"+String(mil%100).padStart(2,"0")+" ("+mil+" mil)";
+  }
+  return deg.toFixed(2)+"°";
+}
+function dms(v,pos,neg){
+  const h=v>=0?pos:neg; v=Math.abs(v);
+  let d=Math.floor(v), m=Math.floor((v-d)*60), s=((v-d)*60-m)*60;
+  if(s>=59.995){s=0;m++;} if(m===60){m=0;d++;}
+  return `${d}°${String(m).padStart(2,"0")}′${s.toFixed(2).padStart(5,"0")}″${h}`;
+}
+function fmtCoord(lat,lon){
+  if(st.fmt==="mgrs") return toMGRS(lat,lon);
+  if(st.fmt==="dms") return dms(lat,"N","S")+" "+dms(lon,"E","W");
+  return lat.toFixed(6)+", "+lon.toFixed(6);
+}
+
+/* ============ Xəritə ============ */
+const map=L.map("map",{zoomControl:false,attributionControl:false,maxZoom:19}).setView([40.4093,49.8671],12);
+L.control.attribution({position:"bottomleft",prefix:false}).addTo(map);
+L.control.scale({imperial:false,position:"bottomright"}).addTo(map);
+
+const layers={
+  simple:L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}),
+  hybrid:L.layerGroup([
+    L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",{maxZoom:19,attribution:"Esri, Maxar"}),
+    L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}",{maxZoom:19}),
+    L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}",{maxZoom:19})
+  ]),
+  topo:L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",{maxNativeZoom:17,maxZoom:19,subdomains:"abc",attribution:"© OpenTopoMap (CC-BY-SA), © OpenStreetMap"})
+};
+let curLayer=null;
+function setLayer(k){
+  if(curLayer) map.removeLayer(curLayer);
+  curLayer=layers[k]; curLayer.addTo(map); st.layer=k;
+  document.querySelectorAll("#seg button").forEach(b=>b.classList.toggle("on",b.dataset.l===k));
+  save();
+}
+document.getElementById("seg").addEventListener("click",e=>{ if(e.target.dataset.l) setLayer(e.target.dataset.l); });
+
+const gTargets=L.layerGroup().addTo(map), gLines=L.layerGroup().addTo(map), gMe=L.layerGroup().addTo(map);
+
+function renderMe(){
+  gMe.clearLayers();
+  const box=document.getElementById("meBox");
+  if(!st.me){ box.textContent="GPS gözlənilir… (yaxud koordinatı yazıb «Mən» düyməsini basın)"; return; }
+  L.marker([st.me.lat,st.me.lon],{icon:L.divIcon({className:"",html:'<div class="mem"></div>',iconSize:[18,18],iconAnchor:[9,9]}),zIndexOffset:1000}).addTo(gMe);
+  if(st.me.acc && !st.manualMe) L.circle([st.me.lat,st.me.lon],{radius:st.me.acc,weight:1,color:"#1976d2",fillOpacity:.1}).addTo(gMe);
+  box.innerHTML="<b>Mən"+(st.manualMe?" (əl ilə)":"")+":</b> "+fmtCoord(st.me.lat,st.me.lon)+
+    (st.me.acc&&!st.manualMe?"<br><small>Dəqiqlik: ±"+Math.round(st.me.acc)+" m</small>":"");
+}
+
+function lineLabel(line,txt){
+  if(st.oLbl) line.bindTooltip(txt,{permanent:true,direction:"center",className:"lbl",opacity:1});
+}
+
+function render(){
+  gTargets.clearLayers(); gLines.clearLayers();
+  const T=st.targets;
+  T.forEach((t,i)=>{
+    const mk=L.marker([t.lat,t.lon],{icon:L.divIcon({className:"",html:'<div class="tmk">'+(i+1)+'</div>',iconSize:[28,28],iconAnchor:[14,14]})}).addTo(gTargets);
+    let pop="<div class='pop'><b>Hədəf "+(i+1)+"</b><br>"+t.lat.toFixed(6)+", "+t.lon.toFixed(6)+"<br>"+toMGRS(t.lat,t.lon);
+    if(st.me){ const r=inverse(st.me.lat,st.me.lon,t.lat,t.lon); pop+="<br>Məsafə: "+fmtDist(r.d)+"<br>Azimut: "+fmtAz(r.az); }
+    pop+="<br><button class='btn warn' onclick='delT("+i+")'>Sil</button></div>";
+    mk.bindPopup(pop);
+    if(st.oMe && st.me){
+      const r=inverse(st.me.lat,st.me.lon,t.lat,t.lon);
+      const ln=L.polyline([[st.me.lat,st.me.lon],[t.lat,t.lon]],{color:"#e53935",weight:2.5,dashArray:"8 6"}).addTo(gLines);
+      lineLabel(ln,fmtDist(r.d)+" · "+fmtAz(r.az));
+    }
+  });
+  if(st.oChain){
+    for(let i=1;i<T.length;i++){
+      const a=T[i-1],b=T[i], r=inverse(a.lat,a.lon,b.lat,b.lon);
+      const ln=L.polyline([[a.lat,a.lon],[b.lat,b.lon]],{color:"#1e88e5",weight:3}).addTo(gLines);
+      lineLabel(ln,i+"→"+(i+1)+": "+fmtDist(r.d)+" · "+fmtAz(r.az));
+    }
+  }
+  renderList(); renderMe(); save();
+}
+
+function renderList(){
+  document.getElementById("hTitle").textContent="Hədəflər: "+st.targets.length;
+  const el=document.getElementById("list");
+  if(!st.targets.length){ el.innerHTML="<div style='color:#607d8b;font-size:14px'>Hələ hədəf yoxdur. Yuxarıda koordinat yazıb «+ Hədəf» basın.</div>"; return; }
+  el.innerHTML=st.targets.map((t,i)=>{
+    let l2="Mənim mövqeyim yoxdur";
+    if(st.me){ const r=inverse(st.me.lat,st.me.lon,t.lat,t.lon); l2="Məndən: <b>"+fmtDist(r.d)+"</b> · azimut <b>"+fmtAz(r.az)+"</b>"; }
+    let l3="";
+    if(i>0){ const p=st.targets[i-1], r=inverse(p.lat,p.lon,t.lat,t.lon); l3="<small>"+i+"→"+(i+1)+": "+fmtDist(r.d)+" · "+fmtAz(r.az)+"</small>"; }
+    return "<div class='item' onclick='zoomT("+i+")'><div class='num'>"+(i+1)+"</div><div class='info'>"+fmtCoord(t.lat,t.lon)+"<small>"+l2+"</small>"+l3+"</div><button class='x' onclick='event.stopPropagation();delT("+i+")'>✕</button></div>";
+  }).join("");
+}
+
+/* ============ Əməliyyatlar ============ */
+const msg=document.getElementById("msg");
+function say(t,ok){ msg.textContent=t; msg.className=ok?"ok":""; }
+const q=document.getElementById("q");
+
+function fitAll(){
+  const pts=st.targets.map(t=>[t.lat,t.lon]); if(st.me) pts.push([st.me.lat,st.me.lon]);
+  if(!pts.length) return;
+  if(pts.length===1) map.setView(pts[0],Math.max(map.getZoom(),15));
+  else map.fitBounds(L.latLngBounds(pts),{padding:[50,50]});
+}
+function addTarget(){
+  const r=parseCoord(q.value);
+  if(!r){ say("Koordinat başa düşülmədi. Nümunə: 40.4093, 49.8671  və ya  39T VK 12345 67890"); return; }
+  st.targets.push({lat:r.lat,lon:r.lon});
+  say("Hədəf "+st.targets.length+" əlavə edildi ("+r.type+")",true);
+  q.value=""; render(); fitAll();
+}
+function setMeManual(){
+  const r=parseCoord(q.value);
+  if(!r){ say("Koordinat başa düşülmədi."); return; }
+  st.me={lat:r.lat,lon:r.lon,acc:0}; st.manualMe=true;
+  say("Mövqe əl ilə təyin edildi. GPS-ə qayıtmaq üçün ⌖ düyməsini basın.",true);
+  q.value=""; render(); fitAll();
+}
+function delT(i){ st.targets.splice(i,1); map.closePopup(); render(); }
+function zoomT(i){ const t=st.targets[i]; map.setView([t.lat,t.lon],Math.max(map.getZoom(),16)); }
+window.delT=delT; window.zoomT=zoomT;
+
+document.getElementById("addBtn").onclick=addTarget;
+document.getElementById("meBtn").onclick=setMeManual;
+q.addEventListener("keydown",e=>{ if(e.key==="Enter") addTarget(); });
+document.getElementById("fitBtn").onclick=fitAll;
+document.getElementById("locBtn").onclick=()=>{
+  if(st.manualMe){ st.manualMe=false; st.me=null; render(); say("GPS-ə qayıdıldı.",true); }
+  if(st.me) map.setView([st.me.lat,st.me.lon],Math.max(map.getZoom(),16));
+};
+document.getElementById("clearBtn").onclick=()=>{ if(confirm("Bütün hədəflər silinsin?")){ st.targets=[]; render(); } };
+
+for(const [id,key] of [["oMe","oMe"],["oChain","oChain"],["oLbl","oLbl"]]){
+  const el=document.getElementById(id); el.checked=st[key];
+  el.onchange=()=>{ st[key]=el.checked; render(); };
+}
+for(const [id,key] of [["oUnit","unit"],["oFmt","fmt"]]){
+  const el=document.getElementById(id); el.value=st[key];
+  el.onchange=()=>{ st[key]=el.value; render(); };
+}
+document.getElementById("handle").onclick=()=>{
+  const s=document.getElementById("sheet"); s.classList.toggle("collapsed");
+  document.getElementById("hArrow").textContent=s.classList.contains("collapsed")?"▴":"▾";
+  setTimeout(()=>map.invalidateSize(),50);
+};
+
+/* ============ GPS ============ */
+let firstFix=true;
+if(navigator.geolocation){
+  navigator.geolocation.watchPosition(p=>{
+    if(st.manualMe) return;
+    st.me={lat:p.coords.latitude,lon:p.coords.longitude,acc:p.coords.accuracy};
+    if(firstFix){ firstFix=false; if(!st.targets.length) map.setView([st.me.lat,st.me.lon],16); else fitAll(); }
+    render();
+  },err=>{
+    say("GPS xətası: "+err.message+" (HTTPS və ya yer icazəsi lazımdır). «Mən» düyməsi ilə əl ilə də təyin edə bilərsiniz.");
+  },{enableHighAccuracy:true,maximumAge:1000,timeout:30000});
+} else say("Bu brauzer GPS dəstəkləmir.");
+
+setLayer(st.layer);
+render();
+if(st.targets.length) fitAll();
+</script>
+</body>
+</html>
